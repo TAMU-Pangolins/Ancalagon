@@ -263,6 +263,15 @@ std::string ReactionFilePath() {
   return fromEnv ? std::string(fromEnv) : std::string("o15ag_19ne.reaction");
 }
 
+// Reaction-vertex position along the beam axis (world z, cm; 0 = target
+// centre), for reaction files without a BKIN card. REACTION_Z0_CM moves the
+// fixed vertex, e.g. to simulate the BGO hit-pattern centroid against the
+// resonance position. Default 0 (unchanged behaviour).
+double ReactionZ0Cm() {
+  const char* v = std::getenv("REACTION_Z0_CM");
+  return v ? std::atof(v) : 0.0;
+}
+
 // --- Automatic "Chain" magnetic retuning for real recoil rigidity --------
 //
 // DetectorConstruction's own fallback (ComputeMagneticRetuneScale(), absent
@@ -390,7 +399,7 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
   runManager->SetUserInitialization(new DetectorConstruction("Chain"));
   runManager->SetUserInitialization(new PhysicsList());
   runManager->SetUserAction(new PrimaryGeneratorAction(ReactionFilePath(), 0.0,
-                                                        TargetChamber::BeamApertureWorldYCm(), 0.0));
+                                                        TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm()));
   std::vector<double> samplesMeV;
   std::set<G4int> recordedTrackIds;
   runManager->SetUserAction(
@@ -629,7 +638,7 @@ int RunReactionTracking(int argc, char** argv) {
   auto* runManager = G4RunManagerFactory::CreateRunManager(G4RunManagerType::Serial);
   SetUpRetunedChainGeometry(runManager);
   runManager->SetUserAction(
-      new PrimaryGeneratorAction(ReactionFilePath(), 0.0, TargetChamber::BeamApertureWorldYCm(), 0.0));
+      new PrimaryGeneratorAction(ReactionFilePath(), 0.0, TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm()));
   // See SteppingAction's own comment: without this, G4ionIonisation's
   // effective-charge model silently drifts the recoil's tracked charge
   // away from its real, fixed charge state, corrupting every bend
