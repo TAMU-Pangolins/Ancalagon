@@ -319,15 +319,17 @@ class RigidityCalibrationEvent : public G4UserEventAction {
 // it enters D1's field container (mirroring the manual recipe's "row
 // immediately preceding a D1-volume row" -- vacuum-to-vacuum, so there's no
 // material energy loss right at that boundary to distinguish the two). The
-// mass>=30000 MeV cut (below any gamma/e-/e+/proton, well below any of this
-// pilot's own recoil ions) is the same trick SteppingAction's TRAJ dump
-// output already relies on to separate the recoil's own trajectory from its
-// correlated gammas'/secondaries'.
+// recoil is identified by its (Z, A) from the reaction file's RECL card.
+// (An earlier mass>=30000 MeV cut silently rejected every recoil lighter
+// than A~33 -- 26Mg, 19Ne, 20Ne, 23Na... -- so their retune always fell back
+// to the idealized, pre-energy-loss rigidity.)
 class RigidityCalibrationStepping : public G4UserSteppingAction {
  public:
-  RigidityCalibrationStepping(double nominalChargeIonE, std::vector<double>* samplesMeV,
-                               std::set<G4int>* recordedTrackIds)
+  RigidityCalibrationStepping(double nominalChargeIonE, int recoilZ, int recoilA,
+                               std::vector<double>* samplesMeV, std::set<G4int>* recordedTrackIds)
       : fNominalChargeIonE(nominalChargeIonE),
+        fRecoilZ(recoilZ),
+        fRecoilA(recoilA),
         fSamplesMeV(samplesMeV),
         fRecordedTrackIds(recordedTrackIds) {}
 
@@ -340,7 +342,8 @@ class RigidityCalibrationStepping : public G4UserSteppingAction {
     if (track->GetParticleDefinition()->GetParticleType() == "nucleus") {
       const_cast<G4DynamicParticle*>(track->GetDynamicParticle())->SetCharge(fNominalChargeIonE * eplus);
     }
-    if (track->GetDynamicParticle()->GetMass() / MeV < 30000.0) return;  // not the recoil
+    const G4ParticleDefinition* def = track->GetParticleDefinition();
+    if (def->GetAtomicNumber() != fRecoilZ || def->GetAtomicMass() != fRecoilA) return;  // not the recoil
 
     const G4VPhysicalVolume* preVol = step->GetPreStepPoint()->GetPhysicalVolume();
     if (preVol && preVol->GetName() == "D1" && fRecordedTrackIds->insert(track->GetTrackID()).second) {
@@ -350,6 +353,7 @@ class RigidityCalibrationStepping : public G4UserSteppingAction {
 
  private:
   double fNominalChargeIonE;
+  int fRecoilZ, fRecoilA;
   std::vector<double>* fSamplesMeV;
   std::set<G4int>* fRecordedTrackIds;
 };
@@ -394,7 +398,8 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
   std::vector<double> samplesMeV;
   std::set<G4int> recordedTrackIds;
   runManager->SetUserAction(
-      new RigidityCalibrationStepping(cfg.recoilChargeState, &samplesMeV, &recordedTrackIds));
+      new RigidityCalibrationStepping(cfg.recoilChargeState, cfg.recoil.Z, cfg.recoil.A, &samplesMeV,
+                                      &recordedTrackIds));
   runManager->SetUserAction(new RigidityCalibrationEvent(&recordedTrackIds));
   runManager->Initialize();
   runManager->BeamOn(kCalibrationEvents);
