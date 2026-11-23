@@ -578,6 +578,75 @@ under the old transportation-only physics list) reach it reliably any
 more -- see "Full chain" above for why (a real, but not yet resolved,
 consequence of turning EM physics on).
 
+### Compact output, truth, gas pressure and the gamma library (NN emulator)
+
+All of this is opt-in through environment variables (`include/RunConfig.hh`).
+With none of them set, the output is bit-identical to before: this was checked
+against a build of `main` (fa647e7) on 1000 k39 events with `RANDOM_SEED=12345`,
+and every `Bgo`/`Dsssd` column matched exactly.
+
+| variable | effect |
+|---|---|
+| `OUTPUT_FILE` | output file name (default `dragon_hits.root`) |
+| `OUTPUT_MODE` | `steps` (default): legacy `Bgo`/`Dsssd` step trees. `compact`: `BgoEvent` + `Truth` (or `LibTruth`) + `RunInfo` only, with zero-edep BGO steps dropped. `both`: everything |
+| `EVENT_PRINT` | per-event `HITS ...` stdout lines; default on, except off in `compact` mode. The event count is in `RunInfo.nEvents` instead |
+| `GAS_PRESSURE_TORR` | target pressure (default 5). Every gas volume scales with it (cell, collars, box, pumping chain) |
+| `GAS_TEMPERATURE_K` | if set, density also scales by 293.15/T. The NIST H/He reference densities are at 20 C. Unset keeps the legacy pressure-only scaling. The NN emulator campaigns use 300 |
+| `LIBRARY_CELLS`, `LIBRARY_EVENTS_PER_CELL` | gamma-library mode, see below |
+
+**Trees in compact mode** (one row per *simulated* event, so entries = events):
+
+| tree | columns |
+|---|---|
+| `BgoEvent` | `eventID`, `nCrystals`, `crystalID[]`, `edepMeV[]` (summed per crystal), `tFirstNs[]`, `dsssdNHits`, `dsssdEdepMeV`, `dsssdRecoil` (DSSSD hit by track 1, the recoil) |
+| `Truth` | `eventID`, `mode`, `cellIndex`, `vertexX/Y/Z_cm`, `beamKeMeV`, `ecmMeV`, `emitterBeta`, `recoilPx/Py/Pz/E`, and per gamma: `gammaELab[]`, `gammaEStar[]`, `gammaCosThetaLab[]`, `gammaPhiLab[]`, `gammaCosThetaStar[]`, `gammaPhiStar[]` (in the emitting level's rest frame), `levelFrom[]`, `levelTo[]` |
+| `LibTruth` | gamma-library mode only, replacing `Truth`: `cosThetaStar`, `phiStar` |
+| `RunInfo` | `nEvents`, `randomSeed`, `pressureTorr`, `temperatureK`, `densityFracStp`, `nLibraryCells`, `eventsPerCell` |
+
+These were checked against the step trees in `both` mode: per-crystal sums
+agree to float precision, and DSSSD counts agree. Re-simulating four k39 stems
+(`calib1g_d4450keV`, `cascade_45_4500keV`, two `cascade3g`) with an independent
+seed reproduces the cached `Ancalagon_k39_emulator/dataset.npz` singles and
+addback spectra above 0.5 MeV, with chi2/ndf near 1. Below 0.5 MeV the old
+extraction counted events that had only zero-edep BGO steps as E=0 hits, and
+compact mode does not.
+
+**Pressure check:** k39 with `BKIN 24.12`, `RWID 1e-4`, at T = 300 K.
+
+| pressure | vertex z (cm) | recoil reaches DSSSD |
+|---|---|---|
+| 1 Torr | +3.8 +- 1.0 | 1.00 |
+| 5 Torr | -3.5 +- 0.4 | 1.00 |
+| 10 Torr | -4.4 +- 0.2 | 0.78 |
+
+The 10 Torr drop is with the file's fixed `RTUN`, which was tuned at 5 Torr.
+For pressure scans, omit `RTUN` so the separator is auto-retuned.
+
+Vertex depth sampling (`BKIN`) only covers the cell's own 10.63 cm gas path,
+not the collar density ramps.
+
+**Gamma-library mode:** `Ancalagon --gamma-library [N]`.
+
+- **What it fires:** one gamma per event, with energy `E0` in the emitter rest
+  frame, isotropic there, then boosted along +z with speed `beta`.
+- **Where:** emitted at (0, beam-axis y, `z`), through the full "Chain"
+  geometry.
+- **What it leaves out:** no recoil ion, no separator retune, no
+  SteppingAction.
+- **Cells:** `LIBRARY_CELLS` is a text file of `E0_MeV z_cm beta` lines. Event
+  `i` belongs to cell `i / LIBRARY_EVENTS_PER_CELL`. `N` defaults to the whole
+  library.
+- **Reaction file:** `REACTION_INPUT` must still name a reaction file. Only its
+  `TARG` card is used, to choose H2 or He.
+- **Cost:** about 0.05 ms per gamma event, and about 37 bytes per event in
+  compact mode. Measured on 100k events over 5 cells.
+
+**Reaction files for arbitrary beams and level schemes:**
+`reactions/reaction_writer.py` writes them, for any beam/target, any branching
+scheme, optional `BKIN`/`RWID`/`RTUN`, and the generalised RECL terminus shift.
+Use it as a library (`ReactionSpec`, `linear_chain`) or as a CLI taking a JSON
+spec.
+
 ## Visualization
 
 `--vis [element] [macro]` opens a Geant4 viewer (`macros/init_vis.mac`

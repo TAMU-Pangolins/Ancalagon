@@ -656,6 +656,48 @@ int RunReactionTracking(int argc, char** argv) {
   return 0;
 }
 
+// Single-gamma deposit library: `Ancalagon --gamma-library [N]`. One gamma
+// per event, (E0, vertex z, emitter beta) cells read from LIBRARY_CELLS,
+// LIBRARY_EVENTS_PER_CELL events each, emitted on the beam axis through the
+// full "Chain" geometry (BGO array, target chamber, gas). No recoil ion is
+// generated, so no separator retune and no SteppingAction are needed. N
+// defaults to nCells*eventsPerCell (the whole library); a smaller N stops
+// early. Intended for OUTPUT_MODE=compact (BgoEvent/Truth/RunInfo trees).
+// REACTION_INPUT must still name a reaction file: DetectorConstruction picks
+// the target gas (H2/He) from its TARG card; nothing else in it is used.
+int RunGammaLibrary(int argc, char** argv) {
+  const char* cellsPath = std::getenv("LIBRARY_CELLS");
+  if (!cellsPath) {
+    std::fprintf(stderr, "--gamma-library needs LIBRARY_CELLS=<cells file>\n");
+    return 1;
+  }
+  const char* perCellEnv = std::getenv("LIBRARY_EVENTS_PER_CELL");
+  const int eventsPerCell = perCellEnv ? std::atoi(perCellEnv) : 1000;
+  const auto cells = PrimaryGeneratorAction::LoadLibraryCells(cellsPath);
+  const long total = static_cast<long>(cells.size()) * eventsPerCell;
+  const long nEvents = argc > 2 ? std::atol(argv[2]) : total;
+  if (nEvents > total || nEvents > 2147483647L) {
+    std::fprintf(stderr, "--gamma-library: %ld events requested, library has %ld (max 2^31-1)\n",
+                 nEvents, total);
+    return 1;
+  }
+  std::printf("Gamma library: %zu cells x %d events/cell, running %ld events\n", cells.size(),
+              eventsPerCell, nEvents);
+
+  auto* runManager = G4RunManagerFactory::CreateRunManager(G4RunManagerType::Serial);
+  runManager->SetUserInitialization(new DetectorConstruction("Chain"));
+  runManager->SetUserInitialization(new PhysicsList());
+  runManager->SetUserAction(new PrimaryGeneratorAction(
+      cells, eventsPerCell, 0.0, TargetChamber::BeamApertureWorldYCm()));
+  runManager->SetUserAction(new RunAction());
+  runManager->SetUserAction(new EventAction());
+  runManager->Initialize();
+  runManager->BeamOn(static_cast<int>(nEvents));
+
+  delete runManager;
+  return 0;
+}
+
 // Diagnostic: fires the actual *beam* ion (15O, not the recoil) through
 // the target region at a given kinetic energy (default: this pilot's own
 // design resonance energy, 258.5413 MeV/c), from just upstream of the gas
@@ -787,6 +829,9 @@ int main(int argc, char** argv) {
   }
   if (argc > 1 && std::strcmp(argv[1], "--track-reaction") == 0) {
     return RunReactionTracking(argc, argv);
+  }
+  if (argc > 1 && std::strcmp(argv[1], "--gamma-library") == 0) {
+    return RunGammaLibrary(argc, argv);
   }
   if (argc > 1 && std::strcmp(argv[1], "--track-beam") == 0) {
     return RunBeamThroughTarget(argc, argv);

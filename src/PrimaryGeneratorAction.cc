@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 
 #include "G4Event.hh"
 #include "G4Gamma.hh"
@@ -17,6 +20,7 @@
 #include "GasStoppingPower.hh"
 #include "Randomize.hh"
 #include "ReactionConfig.hh"
+#include "RunConfig.hh"
 #include "TargetChamber.hh"
 
 PrimaryGeneratorAction::PrimaryGeneratorAction(double x0Cm, double y0Cm, double momentumMeV,
@@ -54,6 +58,47 @@ PrimaryGeneratorAction::PrimaryGeneratorAction(const std::string& reactionFilePa
   fRecoilChargeState = fConfig.recoilChargeState;
 }
 
+PrimaryGeneratorAction::PrimaryGeneratorAction(const std::vector<LibraryCell>& cells,
+                                               int eventsPerCell, double x0Cm, double y0Cm)
+    : fIsLibrary(true),
+      fLibraryCells(cells),
+      fEventsPerCell(eventsPerCell),
+      fLibraryX0Cm(x0Cm),
+      fLibraryY0Cm(y0Cm) {
+  if (fLibraryCells.empty()) throw std::runtime_error("gamma library: no cells");
+  if (fEventsPerCell <= 0) throw std::runtime_error("gamma library: eventsPerCell must be > 0");
+  for (const auto& c : fLibraryCells) {
+    if (!(c.e0MeV > 0.0) || c.beta < 0.0 || c.beta >= 1.0) {
+      throw std::runtime_error("gamma library: bad cell (need E0>0, 0<=beta<1)");
+    }
+  }
+  RunConfig::Library().nCells = static_cast<int>(fLibraryCells.size());
+  RunConfig::Library().eventsPerCell = fEventsPerCell;
+}
+
+std::vector<PrimaryGeneratorAction::LibraryCell> PrimaryGeneratorAction::LoadLibraryCells(
+    const std::string& path) {
+  std::ifstream in(path);
+  if (!in) throw std::runtime_error("gamma library: cannot open cells file '" + path + "'");
+  std::vector<LibraryCell> cells;
+  std::string line;
+  int lineNo = 0;
+  while (std::getline(in, line)) {
+    ++lineNo;
+    const auto hash = line.find('#');
+    if (hash != std::string::npos) line.erase(hash);
+    std::istringstream ss(line);
+    LibraryCell c{};
+    if (!(ss >> c.e0MeV)) continue;  // blank/comment line
+    if (!(ss >> c.zCm >> c.beta)) {
+      throw std::runtime_error("gamma library: line " + std::to_string(lineNo) + " of '" + path +
+                               "' needs 'E0_MeV z_cm beta'");
+    }
+    cells.push_back(c);
+  }
+  return cells;
+}
+
 PrimaryGeneratorAction::~PrimaryGeneratorAction() {
   delete fGun;
   delete fReaction;
@@ -61,6 +106,11 @@ PrimaryGeneratorAction::~PrimaryGeneratorAction() {
 }
 
 void PrimaryGeneratorAction::GeneratePrimaries(G4Event* event) {
+  RunConfig::CurrentTruth().Clear();
+  if (fIsLibrary) {
+    GenerateLibraryPrimaries(event);
+    return;
+  }
   if (fIsReaction) {
     GenerateReactionPrimaries(event);
     return;
@@ -137,4 +187,67 @@ void PrimaryGeneratorAction::GenerateReactionPrimaries(G4Event* event) {
   }
 
   event->AddPrimaryVertex(vertex);
+
+  RunConfig::Truth& truth = RunConfig::CurrentTruth();
+  truth.mode = 0;
+  truth.vertexXCm = fReactionX0Cm;
+  truth.vertexYCm = fReactionY0Cm;
+  truth.vertexZCm = vertexZCm;
+  truth.beamKeMeV = beamKineticEnergyMeV;
+  truth.ecmMeV = ev.ecmMeV;
+  truth.emitterBeta = ev.compoundBeta;
+  truth.recoilPMeV = ev.recoilMomentumMeV;
+  truth.recoilEMeV = ev.recoilEnergyMeV;
+  for (std::size_t i = 0; i < ev.gammaMomentaMeV.size(); ++i) {
+    const G4ThreeVector& p = ev.gammaMomentaMeV[i];
+    truth.gammaELabMeV.push_back(static_cast<float>(p.mag()));
+    truth.gammaCosThetaLab.push_back(static_cast<float>(p.cosTheta()));
+    truth.gammaPhiLab.push_back(static_cast<float>(p.phi()));
+    truth.gammaEStarMeV.push_back(static_cast<float>(ev.gammaEnergyStarMeV[i]));
+    truth.gammaCosThetaStar.push_back(static_cast<float>(ev.gammaDirectionStar[i].cosTheta()));
+    truth.gammaPhiStar.push_back(static_cast<float>(ev.gammaDirectionStar[i].phi()));
+    truth.levelFrom.push_back(ev.levelFrom[i]);
+    truth.levelTo.push_back(ev.levelTo[i]);
+  }
+}
+
+void PrimaryGeneratorAction::GenerateLibraryPrimaries(G4Event* event) {
+  const int cellIndex = event->GetEventID() / fEventsPerCell;
+  if (cellIndex >= static_cast<int>(fLibraryCells.size())) {
+    throw std::runtime_error("gamma library: more events requested than nCells*eventsPerCell");
+  }
+  const LibraryCell& cell = fLibraryCells[cellIndex];
+
+  // Isotropic in the emitter rest frame, boosted along +z.
+  const double cosThetaStar = 2.0 * G4UniformRand() - 1.0;
+  const double sinThetaStar = std::sqrt(std::max(0.0, 1.0 - cosThetaStar * cosThetaStar));
+  const double phiStar = 2.0 * CLHEP::pi * G4UniformRand() - CLHEP::pi;  // [-pi, pi), like G4ThreeVector::phi
+  const double beta = cell.beta;
+  const double gamma = 1.0 / std::sqrt(1.0 - beta * beta);
+  const double eStar = cell.e0MeV;
+  const double px = eStar * sinThetaStar * std::cos(phiStar);
+  const double py = eStar * sinThetaStar * std::sin(phiStar);
+  const double pz = gamma * eStar * (cosThetaStar + beta);
+  const G4ThreeVector pLab(px, py, pz);
+
+  const G4ThreeVector vertexPos(fLibraryX0Cm * cm, fLibraryY0Cm * cm, cell.zCm * cm);
+  auto* vertex = new G4PrimaryVertex(vertexPos, 0.0);
+  vertex->SetPrimary(new G4PrimaryParticle(G4Gamma::Gamma(), px * MeV, py * MeV, pz * MeV));
+  event->AddPrimaryVertex(vertex);
+
+  RunConfig::Truth& truth = RunConfig::CurrentTruth();
+  truth.mode = 1;
+  truth.cellIndex = cellIndex;
+  truth.vertexXCm = fLibraryX0Cm;
+  truth.vertexYCm = fLibraryY0Cm;
+  truth.vertexZCm = cell.zCm;
+  truth.emitterBeta = beta;
+  truth.gammaELabMeV.push_back(static_cast<float>(pLab.mag()));
+  truth.gammaCosThetaLab.push_back(static_cast<float>(pLab.cosTheta()));
+  truth.gammaPhiLab.push_back(static_cast<float>(pLab.phi()));
+  truth.gammaEStarMeV.push_back(static_cast<float>(eStar));
+  truth.gammaCosThetaStar.push_back(static_cast<float>(cosThetaStar));
+  truth.gammaPhiStar.push_back(static_cast<float>(phiStar));
+  truth.levelFrom.push_back(-1);
+  truth.levelTo.push_back(0);
 }

@@ -113,6 +113,8 @@ ReactionKinematics::Event ReactionKinematics::GenerateEvent(double beamKineticEn
   int currentLevel = -1;
 
   Event ev;
+  ev.compoundBeta = pBeam / eParentLab;
+  ev.ecmMeV = W - fBeamMassMeV - fTargetMassMeV;
   while (true) {
     double totalPercent = 0.0;
     std::vector<const ReactionConfig::Branch*> options;
@@ -162,6 +164,10 @@ ReactionKinematics::Event ReactionKinematics::GenerateEvent(double beamKineticEn
     (void)eGammaLab;  // == |pGammaLab| (massless); not needed separately.
 
     ev.gammaMomentaMeV.push_back(pGammaLab);
+    ev.gammaEnergyStarMeV.push_back(eGammaStar);
+    ev.gammaDirectionStar.push_back(pGammaStar.unit());
+    ev.levelFrom.push_back(currentLevel);
+    ev.levelTo.push_back(daughterLevel);
 
     if (daughterLevel == 0) {
       ev.recoilMomentumMeV = pDaughterLab;

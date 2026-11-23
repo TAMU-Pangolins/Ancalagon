@@ -1,5 +1,7 @@
 #include "BgoSD.hh"
 
+#include "RunConfig.hh"
+
 #include "G4HCofThisEvent.hh"
 #include "G4SDManager.hh"
 #include "G4Step.hh"
@@ -26,6 +28,11 @@ G4bool BgoSD::ProcessHits(G4Step* step, G4TouchableHistory*) {
   // geometry/SD wiring itself is correct. edep becomes physically
   // meaningful once a real EM/hadronic physics list is added (a
   // separately tracked, not-yet-done item -- see README).
+  // Compact-only output (RunConfig.hh) sums energy per crystal, so
+  // zero-deposit steps carry nothing and are skipped -- the legacy step
+  // trees ("steps"/"both") keep recording every step as before.
+  if (!RunConfig::WriteStepTrees() && step->GetTotalEnergyDeposit() <= 0.0) return false;
+
   auto* hit = new BgoHit();
   hit->edepMeV = step->GetTotalEnergyDeposit() / MeV;
   hit->position = step->GetPostStepPoint()->GetPosition();
