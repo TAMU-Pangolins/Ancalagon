@@ -641,6 +641,21 @@ not the collar density ramps.
 - **Cost:** about 0.05 ms per gamma event, and about 37 bytes per event in
   compact mode. Measured on 100k events over 5 cells.
 
+**Separator retune (default changed 2026-11-24).** Without an `RTUN` card,
+`--track-reaction` measures the separator scale from calibration events. It now
+uses `RETUNE_EVENTS` (default 1000) central recoils: compound momentum, no
+gamma kick, no gammas. That is cascade-independent, like a real tune scaled from
+the beam.
+
+The old method averaged |p| at D1 over full reaction events that survived to D1
+(300 of them). For light recoils with large kicks that set is biased and depends
+on the cascade: for ¹⁹F(p,γ) at 10 Torr the scale varied by 0.6% across
+cascades, against a ±2% momentum acceptance. Get the old behaviour back with
+`RETUNE_NO_KICK=0 RETUNE_EVENTS=300`.
+
+For ⁴⁰Ca (k39) the change is about +0.05% in scale. Runs with an `RTUN` card
+are unaffected.
+
 **Reaction files for arbitrary beams and level schemes:**
 `reactions/reaction_writer.py` writes them, for any beam/target, any branching
 scheme, optional `BKIN`/`RWID`/`RTUN`, and the generalised RECL terminus shift.

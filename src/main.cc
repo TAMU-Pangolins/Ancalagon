@@ -400,16 +400,18 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
   }
 
   // Phase 1: idealized-scale geometry, just to reach D1 for calibration.
-  // RETUNE_EVENTS (default 300) calibration events. RETUNE_NO_KICK=1 tunes on
-  // the central recoil -- the compound momentum, no gamma kick, no gammas --
-  // as a real DRAGON tune (scaled from the beam) would, so every cascade of a
-  // reaction gets the same tune. Default (unset): the original behaviour,
-  // the mean |p| at D1 of whichever full reaction events survive to D1,
-  // which for large kicks is a biased, cascade-dependent subset.
+  // RETUNE_EVENTS calibration events (default 1000). By default the tune is
+  // set on the central recoil -- the compound momentum, no gamma kick, no
+  // gammas -- as a real DRAGON tune (scaled from the beam) would be, so every
+  // cascade of a reaction gets the same tune. RETUNE_NO_KICK=0 restores the
+  // pre-2026-11-24 behaviour (with RETUNE_EVENTS=300 for the old count): the
+  // mean |p| at D1 of whichever full reaction events survive to D1, which
+  // for large gamma kicks (light recoils) is a biased, cascade-dependent
+  // subset -- 0.6% rigidity spread across the cascades of 19F(p,g) at 10 Torr.
   const char* retuneEventsEnv = std::getenv("RETUNE_EVENTS");
-  const int kCalibrationEvents = retuneEventsEnv ? std::atoi(retuneEventsEnv) : 300;
+  const int kCalibrationEvents = retuneEventsEnv ? std::atoi(retuneEventsEnv) : 1000;
   const char* noKickEnv = std::getenv("RETUNE_NO_KICK");
-  const bool noKick = noKickEnv && std::atoi(noKickEnv) != 0;
+  const bool noKick = !(noKickEnv && std::atoi(noKickEnv) == 0);
   runManager->SetUserInitialization(new DetectorConstruction("Chain"));
   runManager->SetUserInitialization(new PhysicsList());
   auto* calibrationGenerator = new PrimaryGeneratorAction(ReactionFilePath(), 0.0,
