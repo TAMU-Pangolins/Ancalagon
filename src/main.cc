@@ -400,11 +400,22 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
   }
 
   // Phase 1: idealized-scale geometry, just to reach D1 for calibration.
-  constexpr int kCalibrationEvents = 300;
+  // RETUNE_EVENTS (default 300) calibration events. RETUNE_NO_KICK=1 tunes on
+  // the central recoil -- the compound momentum, no gamma kick, no gammas --
+  // as a real DRAGON tune (scaled from the beam) would, so every cascade of a
+  // reaction gets the same tune. Default (unset): the original behaviour,
+  // the mean |p| at D1 of whichever full reaction events survive to D1,
+  // which for large kicks is a biased, cascade-dependent subset.
+  const char* retuneEventsEnv = std::getenv("RETUNE_EVENTS");
+  const int kCalibrationEvents = retuneEventsEnv ? std::atoi(retuneEventsEnv) : 300;
+  const char* noKickEnv = std::getenv("RETUNE_NO_KICK");
+  const bool noKick = noKickEnv && std::atoi(noKickEnv) != 0;
   runManager->SetUserInitialization(new DetectorConstruction("Chain"));
   runManager->SetUserInitialization(new PhysicsList());
-  runManager->SetUserAction(new PrimaryGeneratorAction(ReactionFilePath(), 0.0,
-                                                        TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm()));
+  auto* calibrationGenerator = new PrimaryGeneratorAction(ReactionFilePath(), 0.0,
+                                                          TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm());
+  if (noKick) calibrationGenerator->EnableRecoilScan(0.0, 0.0);
+  runManager->SetUserAction(calibrationGenerator);
   std::vector<double> samplesMeV;
   std::set<G4int> recordedTrackIds;
   runManager->SetUserAction(
@@ -435,8 +446,8 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
     scale = (meanP / cfg.recoilChargeState) / nativeRigidityMeVPerCharge;
     std::printf(
         "Auto-measured separator retune scale: %.6f (mean |p| at D1 entrance = %.4f MeV/c, "
-        "%zu/%d calibration events reached D1)\n",
-        scale, meanP, samplesMeV.size(), kCalibrationEvents);
+        "%zu/%d calibration events reached D1%s)\n",
+        scale, meanP, samplesMeV.size(), kCalibrationEvents, noKick ? ", no-kick central recoils" : "");
   }
 
   // Phase 2: rebuild geometry/fields with the corrected scale. The caller
