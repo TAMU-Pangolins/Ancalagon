@@ -45,6 +45,14 @@ class ReactionKinematics {
     double recoilEnergyMeV = 0.0;     // lab frame, total energy, MeV
     std::vector<G4ThreeVector> gammaMomentaMeV;  // lab frame, MeV/c each (|p|==energy);
                                                   // one per cascade step actually taken
+    // Truth bookkeeping, one entry per cascade step (same order as
+    // gammaMomentaMeV): gamma energy and unit direction in the emitting
+    // parent's own rest frame, and the step's from/to levels.
+    std::vector<double> gammaEnergyStarMeV;
+    std::vector<G4ThreeVector> gammaDirectionStar;
+    std::vector<int> levelFrom, levelTo;
+    double compoundBeta = 0.0;  // speed (v/c) of the compound resonance
+    double ecmMeV = 0.0;        // centre-of-mass energy above threshold
   };
 
   // Samples one full decay chain, starting at the resonance (level -1) and
@@ -81,6 +89,7 @@ class ReactionKinematics {
   // (E1/E2) retune-scale calculation, which -- unlike the magnetic scale --
   // genuinely depends on the recoil's own mass, not just its rigidity.
   double RecoilGroundMassMeV() const { return fRecoilGroundMassMeV; }
+  double BeamMassMeV() const { return fBeamMassMeV; }
 
  private:
   ReactionConfig fConfig;

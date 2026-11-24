@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "G4ParticleGun.hh"
 #include "G4VUserPrimaryGeneratorAction.hh"
@@ -44,12 +45,42 @@ class PrimaryGeneratorAction : public G4VUserPrimaryGeneratorAction {
   PrimaryGeneratorAction(const std::string& reactionFilePath, double x0Cm, double y0Cm,
                          double z0Cm);
 
+  // Gamma-library mode (--gamma-library): one gamma per event, energy E0
+  // in the emitter's rest frame, isotropic there, boosted along +z with
+  // speed beta, emitted at (x0, y0, z) -- no recoil ion. (E0, z, beta) come
+  // from the cells file (RunConfig.hh: LIBRARY_CELLS); event i belongs to
+  // cell i / eventsPerCell, so a run of nCells*eventsPerCell events covers
+  // every cell in order.
+  struct LibraryCell {
+    double e0MeV, zCm, beta;
+  };
+  PrimaryGeneratorAction(const std::vector<LibraryCell>& cells, int eventsPerCell, double x0Cm,
+                         double y0Cm);
+  static std::vector<LibraryCell> LoadLibraryCells(const std::string& path);
+
   ~PrimaryGeneratorAction() override;
+
+  // Reaction mode: replace each event by a recoil-only acceptance-scan
+  // event (see RunConfig.hh, RECOIL_SCAN). Called for the production run's
+  // generator only, never for the retune calibration's.
+  void EnableRecoilScan(double thetaMax, double deltaMax) {
+    fRecoilScan = true;
+    fScanThetaMax = thetaMax;
+    fScanDeltaMax = deltaMax;
+  }
 
   void GeneratePrimaries(G4Event* event) override;
 
  private:
   void GenerateReactionPrimaries(G4Event* event);
+  void GenerateLibraryPrimaries(G4Event* event);
+
+  bool fRecoilScan = false;
+  double fScanThetaMax = 0.0, fScanDeltaMax = 0.0;
+  bool fIsLibrary = false;
+  std::vector<LibraryCell> fLibraryCells;
+  int fEventsPerCell = 0;
+  double fLibraryX0Cm = 0.0, fLibraryY0Cm = 0.0;
 
   G4ParticleGun* fGun = nullptr;
   // Ion mode only: G4IonTable::GetIon() needs GenericIon to already be

@@ -1,5 +1,7 @@
 #include "SteppingAction.hh"
 
+#include "RunConfig.hh"
+
 #include <cstdio>
 #include <cstdlib>
 
@@ -47,6 +49,13 @@ void SteppingAction::UserSteppingAction(const G4Step* step) {
     // itself does internally (see above), so this is the same class of
     // access, just from user code instead of a process.
     const_cast<G4DynamicParticle*>(track->GetDynamicParticle())->SetCharge(fNominalChargeIonE * eplus);
+  }
+
+  if (track->GetTrackID() == 1) {
+    // Where the recoil ends up (Truth.recoilEndVolume/recoilEndZ_cm).
+    RunConfig::Truth& truth = RunConfig::CurrentTruth();
+    truth.recoilEndVolume = step->GetPostStepPoint()->GetPhysicalVolume();
+    truth.recoilEndZCm = step->GetPostStepPoint()->GetPosition().z() / cm;
   }
 
   if (TrajQuiet()) return;

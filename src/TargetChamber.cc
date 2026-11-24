@@ -1,5 +1,7 @@
 #include "TargetChamber.hh"
 
+#include "RunConfig.hh"
+
 #include <utility>
 #include <vector>
 
@@ -37,7 +39,8 @@ namespace {
 // the pressure fraction (the file's own reference densities, 8.38e-5 g/cm3
 // for H2 and 1.6586e-4 g/cm3 for He, are close but not identical figures
 // to the NIST STP ones -- not chased here).
-constexpr double kTargetPressureTorr = 5.0;
+// Target pressure/temperature now come from RunConfig (GAS_PRESSURE_TORR,
+// default 5 Torr; GAS_TEMPERATURE_K, default unset = no temperature scaling).
 constexpr double kCentralVacuumFactor = 0.002;
 
 const char* NistNameFor(TargetChamber::TargetGas gas) {
@@ -176,7 +179,7 @@ G4RotationMatrix* EapgXapgRotation() {
 void CellAndApertures(G4LogicalVolume* cmbgLV, TargetChamber::TargetGas gas) {
   G4NistManager* nist = G4NistManager::Instance();
   G4Material* aluminum = nist->FindOrBuildMaterial("G4_Al");
-  G4Material* targetGas = BuildGas(kTargetGasMaterialName, gas, kTargetPressureTorr / 760.0);
+  G4Material* targetGas = BuildGas(kTargetGasMaterialName, gas, RunConfig::TargetGasDensityFractionOfStp());
 
   // CELL: aluminum TRD1 outer shell. shape = (2.115, 6.759, 1.905, 4.208).
   auto* cellSolid = new G4Trd("CELL", 2.115 * cm, 6.759 * cm, 1.905 * cm, 1.905 * cm, 4.208 * cm);
@@ -239,7 +242,7 @@ void GasTube(G4LogicalVolume* worldLV, G4Material* mcent, const char* name, doub
 // outward (EN1G..EN6G), exit side similarly (EX2G..EX10, EX6C).
 void DifferentialPumpingChain(G4LogicalVolume* worldLV, TargetChamber::TargetGas gas) {
   G4Material* mcent =
-      BuildGas("CentralVacuumGas", gas, (kTargetPressureTorr / 760.0) * kCentralVacuumFactor);
+      BuildGas("CentralVacuumGas", gas, (RunConfig::TargetGasDensityFractionOfStp()) * kCentralVacuumFactor);
   G4NistManager* nist = G4NistManager::Instance();
   G4Material* aluminum = nist->FindOrBuildMaterial("G4_Al");
 
@@ -454,7 +457,7 @@ G4LogicalVolume* OuterBoxAndShielding(G4LogicalVolume* worldLV, TargetChamber::T
   G4Material* lead = nist->FindOrBuildMaterial("G4_Pb");
   G4Material* air = nist->FindOrBuildMaterial("G4_AIR");
 
-  const double ptargAtm = kTargetPressureTorr / 760.0;
+  const double ptargAtm = RunConfig::TargetGasDensityFractionOfStp();
   // ment(1..3)/mex(1..3): src/ugmate_trgt.f's own pressure fractions
   // (0.05/0.036/0.016 x ptarg) for both the entrance and exit collar
   // chains -- identical fractions on both sides, so one gas per fraction

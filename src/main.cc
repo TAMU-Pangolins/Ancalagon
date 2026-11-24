@@ -32,6 +32,7 @@
 #include "Randomize.hh"
 #include "ReactionConfig.hh"
 #include "ReactionKinematics.hh"
+#include "RunConfig.hh"
 #include "SteppingAction.hh"
 #include "TargetChamber.hh"
 
@@ -263,6 +264,15 @@ std::string ReactionFilePath() {
   return fromEnv ? std::string(fromEnv) : std::string("o15ag_19ne.reaction");
 }
 
+// Reaction-vertex position along the beam axis (world z, cm; 0 = target
+// centre), for reaction files without a BKIN card. REACTION_Z0_CM moves the
+// fixed vertex, e.g. to simulate the BGO hit-pattern centroid against the
+// resonance position. Default 0 (unchanged behaviour).
+double ReactionZ0Cm() {
+  const char* v = std::getenv("REACTION_Z0_CM");
+  return v ? std::atof(v) : 0.0;
+}
+
 // --- Automatic "Chain" magnetic retuning for real recoil rigidity --------
 //
 // DetectorConstruction's own fallback (ComputeMagneticRetuneScale(), absent
@@ -390,11 +400,22 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
   }
 
   // Phase 1: idealized-scale geometry, just to reach D1 for calibration.
-  constexpr int kCalibrationEvents = 300;
+  // RETUNE_EVENTS (default 300) calibration events. RETUNE_NO_KICK=1 tunes on
+  // the central recoil -- the compound momentum, no gamma kick, no gammas --
+  // as a real DRAGON tune (scaled from the beam) would, so every cascade of a
+  // reaction gets the same tune. Default (unset): the original behaviour,
+  // the mean |p| at D1 of whichever full reaction events survive to D1,
+  // which for large kicks is a biased, cascade-dependent subset.
+  const char* retuneEventsEnv = std::getenv("RETUNE_EVENTS");
+  const int kCalibrationEvents = retuneEventsEnv ? std::atoi(retuneEventsEnv) : 300;
+  const char* noKickEnv = std::getenv("RETUNE_NO_KICK");
+  const bool noKick = noKickEnv && std::atoi(noKickEnv) != 0;
   runManager->SetUserInitialization(new DetectorConstruction("Chain"));
   runManager->SetUserInitialization(new PhysicsList());
-  runManager->SetUserAction(new PrimaryGeneratorAction(ReactionFilePath(), 0.0,
-                                                        TargetChamber::BeamApertureWorldYCm(), 0.0));
+  auto* calibrationGenerator = new PrimaryGeneratorAction(ReactionFilePath(), 0.0,
+                                                          TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm());
+  if (noKick) calibrationGenerator->EnableRecoilScan(0.0, 0.0);
+  runManager->SetUserAction(calibrationGenerator);
   std::vector<double> samplesMeV;
   std::set<G4int> recordedTrackIds;
   runManager->SetUserAction(
@@ -425,8 +446,8 @@ void SetUpRetunedChainGeometry(G4RunManager* runManager) {
     scale = (meanP / cfg.recoilChargeState) / nativeRigidityMeVPerCharge;
     std::printf(
         "Auto-measured separator retune scale: %.6f (mean |p| at D1 entrance = %.4f MeV/c, "
-        "%zu/%d calibration events reached D1)\n",
-        scale, meanP, samplesMeV.size(), kCalibrationEvents);
+        "%zu/%d calibration events reached D1%s)\n",
+        scale, meanP, samplesMeV.size(), kCalibrationEvents, noKick ? ", no-kick central recoils" : "");
   }
 
   // Phase 2: rebuild geometry/fields with the corrected scale. The caller
@@ -633,8 +654,14 @@ int RunReactionStats(int argc, char** argv) {
 int RunReactionTracking(int argc, char** argv) {
   auto* runManager = G4RunManagerFactory::CreateRunManager(G4RunManagerType::Serial);
   SetUpRetunedChainGeometry(runManager);
-  runManager->SetUserAction(
-      new PrimaryGeneratorAction(ReactionFilePath(), 0.0, TargetChamber::BeamApertureWorldYCm(), 0.0));
+  auto* generator =
+      new PrimaryGeneratorAction(ReactionFilePath(), 0.0, TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm());
+  if (RunConfig::RecoilScan()) {
+    generator->EnableRecoilScan(RunConfig::RecoilScanThetaMax(), RunConfig::RecoilScanDeltaMax());
+    std::printf("Recoil acceptance scan: |theta_x|,|theta_y| <= %.4f rad, |delta| <= %.4f, no gammas\n",
+                RunConfig::RecoilScanThetaMax(), RunConfig::RecoilScanDeltaMax());
+  }
+  runManager->SetUserAction(generator);
   // See SteppingAction's own comment: without this, G4ionIonisation's
   // effective-charge model silently drifts the recoil's tracked charge
   // away from its real, fixed charge state, corrupting every bend
@@ -647,6 +674,48 @@ int RunReactionTracking(int argc, char** argv) {
 
   const int nEvents = argc > 2 ? std::atoi(argv[2]) : 1;
   runManager->BeamOn(nEvents);
+
+  delete runManager;
+  return 0;
+}
+
+// Single-gamma deposit library: `Ancalagon --gamma-library [N]`. One gamma
+// per event, (E0, vertex z, emitter beta) cells read from LIBRARY_CELLS,
+// LIBRARY_EVENTS_PER_CELL events each, emitted on the beam axis through the
+// full "Chain" geometry (BGO array, target chamber, gas). No recoil ion is
+// generated, so no separator retune and no SteppingAction are needed. N
+// defaults to nCells*eventsPerCell (the whole library); a smaller N stops
+// early. Intended for OUTPUT_MODE=compact (BgoEvent/Truth/RunInfo trees).
+// REACTION_INPUT must still name a reaction file: DetectorConstruction picks
+// the target gas (H2/He) from its TARG card; nothing else in it is used.
+int RunGammaLibrary(int argc, char** argv) {
+  const char* cellsPath = std::getenv("LIBRARY_CELLS");
+  if (!cellsPath) {
+    std::fprintf(stderr, "--gamma-library needs LIBRARY_CELLS=<cells file>\n");
+    return 1;
+  }
+  const char* perCellEnv = std::getenv("LIBRARY_EVENTS_PER_CELL");
+  const int eventsPerCell = perCellEnv ? std::atoi(perCellEnv) : 1000;
+  const auto cells = PrimaryGeneratorAction::LoadLibraryCells(cellsPath);
+  const long total = static_cast<long>(cells.size()) * eventsPerCell;
+  const long nEvents = argc > 2 ? std::atol(argv[2]) : total;
+  if (nEvents > total || nEvents > 2147483647L) {
+    std::fprintf(stderr, "--gamma-library: %ld events requested, library has %ld (max 2^31-1)\n",
+                 nEvents, total);
+    return 1;
+  }
+  std::printf("Gamma library: %zu cells x %d events/cell, running %ld events\n", cells.size(),
+              eventsPerCell, nEvents);
+
+  auto* runManager = G4RunManagerFactory::CreateRunManager(G4RunManagerType::Serial);
+  runManager->SetUserInitialization(new DetectorConstruction("Chain"));
+  runManager->SetUserInitialization(new PhysicsList());
+  runManager->SetUserAction(new PrimaryGeneratorAction(
+      cells, eventsPerCell, 0.0, TargetChamber::BeamApertureWorldYCm()));
+  runManager->SetUserAction(new RunAction());
+  runManager->SetUserAction(new EventAction());
+  runManager->Initialize();
+  runManager->BeamOn(static_cast<int>(nEvents));
 
   delete runManager;
   return 0;
@@ -783,6 +852,9 @@ int main(int argc, char** argv) {
   }
   if (argc > 1 && std::strcmp(argv[1], "--track-reaction") == 0) {
     return RunReactionTracking(argc, argv);
+  }
+  if (argc > 1 && std::strcmp(argv[1], "--gamma-library") == 0) {
+    return RunGammaLibrary(argc, argv);
   }
   if (argc > 1 && std::strcmp(argv[1], "--track-beam") == 0) {
     return RunBeamThroughTarget(argc, argv);
