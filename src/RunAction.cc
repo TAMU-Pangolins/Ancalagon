@@ -92,6 +92,8 @@ RunAction::RunAction() {
     analysisManager->CreateNtupleFColumn("gammaPhiStar", t.gammaPhiStar);
     analysisManager->CreateNtupleIColumn("levelFrom", t.levelFrom);
     analysisManager->CreateNtupleIColumn("levelTo", t.levelTo);
+    analysisManager->CreateNtupleSColumn("recoilEndVolume");  // 21 kTrRecoilEndVolume
+    analysisManager->CreateNtupleFColumn("recoilEndZ_cm");    // 22 kTrRecoilEndZ
     analysisManager->FinishNtuple();
     }
 

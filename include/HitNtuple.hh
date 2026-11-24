@@ -51,6 +51,9 @@ constexpr int kTrRecoilPx = 9;
 constexpr int kTrRecoilPy = 10;
 constexpr int kTrRecoilPz = 11;
 constexpr int kTrRecoilE = 12;
+// (13-20 are the per-gamma vector columns)
+constexpr int kTrRecoilEndVolume = 21;  // string; "OutOfWorld" if it left the world
+constexpr int kTrRecoilEndZ = 22;
 
 // LibTruth columns (gamma-library mode).
 constexpr int kLtCosThetaStar = 0;

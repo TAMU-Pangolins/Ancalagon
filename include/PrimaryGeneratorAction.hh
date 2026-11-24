@@ -60,12 +60,23 @@ class PrimaryGeneratorAction : public G4VUserPrimaryGeneratorAction {
 
   ~PrimaryGeneratorAction() override;
 
+  // Reaction mode: replace each event by a recoil-only acceptance-scan
+  // event (see RunConfig.hh, RECOIL_SCAN). Called for the production run's
+  // generator only, never for the retune calibration's.
+  void EnableRecoilScan(double thetaMax, double deltaMax) {
+    fRecoilScan = true;
+    fScanThetaMax = thetaMax;
+    fScanDeltaMax = deltaMax;
+  }
+
   void GeneratePrimaries(G4Event* event) override;
 
  private:
   void GenerateReactionPrimaries(G4Event* event);
   void GenerateLibraryPrimaries(G4Event* event);
 
+  bool fRecoilScan = false;
+  double fScanThetaMax = 0.0, fScanDeltaMax = 0.0;
   bool fIsLibrary = false;
   std::vector<LibraryCell> fLibraryCells;
   int fEventsPerCell = 0;

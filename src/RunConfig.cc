@@ -70,6 +70,21 @@ double TargetGasDensityFractionOfStp() {
   return (GasPressureTorr() / 760.0) * tempFactor;
 }
 
+bool RecoilScan() {
+  const char* v = Env("RECOIL_SCAN");
+  return v && std::atoi(v) != 0;
+}
+
+double RecoilScanThetaMax() {
+  const char* v = Env("RECOIL_SCAN_THETA_MAX");
+  return v ? std::atof(v) : 0.035;
+}
+
+double RecoilScanDeltaMax() {
+  const char* v = Env("RECOIL_SCAN_DELTA_MAX");
+  return v ? std::atof(v) : 0.05;
+}
+
 long RandomSeed() {
   const char* v = Env("RANDOM_SEED");
   return v ? std::atol(v) : -1;

@@ -89,6 +89,7 @@ class ReactionKinematics {
   // (E1/E2) retune-scale calculation, which -- unlike the magnetic scale --
   // genuinely depends on the recoil's own mass, not just its rigidity.
   double RecoilGroundMassMeV() const { return fRecoilGroundMassMeV; }
+  double BeamMassMeV() const { return fBeamMassMeV; }
 
  private:
   ReactionConfig fConfig;

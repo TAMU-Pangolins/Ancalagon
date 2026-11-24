@@ -170,9 +170,19 @@ void PrimaryGeneratorAction::GenerateReactionPrimaries(G4Event* event) {
   auto* vertex = new G4PrimaryVertex(vertexPos, 0.0);
 
   G4ParticleDefinition* recoilIon = G4IonTable::GetIonTable()->GetIon(fRecoilZ, fRecoilA, 0.0);
-  auto* recoil = new G4PrimaryParticle(recoilIon, ev.recoilMomentumMeV.x() * MeV,
-                                        ev.recoilMomentumMeV.y() * MeV,
-                                        ev.recoilMomentumMeV.z() * MeV);
+  G4ThreeVector recoilP = ev.recoilMomentumMeV;
+  if (fRecoilScan) {
+    // Acceptance scan: the compound momentum (all along +z), rescaled by
+    // (1+delta) and pointed along (theta_x, theta_y); no gammas.
+    const double pCompound = std::sqrt(std::pow(beamKineticEnergyMeV + fReaction->BeamMassMeV(), 2) -
+                                       std::pow(fReaction->BeamMassMeV(), 2));
+    const double tx = fScanThetaMax * (2.0 * G4UniformRand() - 1.0);
+    const double ty = fScanThetaMax * (2.0 * G4UniformRand() - 1.0);
+    const double delta = fScanDeltaMax * (2.0 * G4UniformRand() - 1.0);
+    recoilP = G4ThreeVector(tx, ty, 1.0).unit() * (pCompound * (1.0 + delta));
+  }
+  auto* recoil = new G4PrimaryParticle(recoilIon, recoilP.x() * MeV, recoilP.y() * MeV,
+                                        recoilP.z() * MeV);
   recoil->SetCharge(fRecoilChargeState * eplus);
   vertex->SetPrimary(recoil);
 
@@ -181,6 +191,7 @@ void PrimaryGeneratorAction::GenerateReactionPrimaries(G4Event* event) {
   // pilot's own reaction whenever the resonance decays through its
   // level-1 intermediate state first (see reactions/o15ag_19ne.reaction).
   for (const G4ThreeVector& pGamma : ev.gammaMomentaMeV) {
+    if (fRecoilScan) break;
     auto* gamma = new G4PrimaryParticle(G4Gamma::Gamma(), pGamma.x() * MeV, pGamma.y() * MeV,
                                          pGamma.z() * MeV);
     vertex->SetPrimary(gamma);
@@ -196,9 +207,9 @@ void PrimaryGeneratorAction::GenerateReactionPrimaries(G4Event* event) {
   truth.beamKeMeV = beamKineticEnergyMeV;
   truth.ecmMeV = ev.ecmMeV;
   truth.emitterBeta = ev.compoundBeta;
-  truth.recoilPMeV = ev.recoilMomentumMeV;
-  truth.recoilEMeV = ev.recoilEnergyMeV;
-  for (std::size_t i = 0; i < ev.gammaMomentaMeV.size(); ++i) {
+  truth.recoilPMeV = recoilP;
+  truth.recoilEMeV = std::sqrt(recoilP.mag2() + std::pow(fReaction->RecoilGroundMassMeV(), 2));
+  for (std::size_t i = 0; i < (fRecoilScan ? 0 : ev.gammaMomentaMeV.size()); ++i) {
     const G4ThreeVector& p = ev.gammaMomentaMeV[i];
     truth.gammaELabMeV.push_back(static_cast<float>(p.mag()));
     truth.gammaCosThetaLab.push_back(static_cast<float>(p.cosTheta()));

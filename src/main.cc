@@ -32,6 +32,7 @@
 #include "Randomize.hh"
 #include "ReactionConfig.hh"
 #include "ReactionKinematics.hh"
+#include "RunConfig.hh"
 #include "SteppingAction.hh"
 #include "TargetChamber.hh"
 
@@ -642,8 +643,14 @@ int RunReactionStats(int argc, char** argv) {
 int RunReactionTracking(int argc, char** argv) {
   auto* runManager = G4RunManagerFactory::CreateRunManager(G4RunManagerType::Serial);
   SetUpRetunedChainGeometry(runManager);
-  runManager->SetUserAction(
-      new PrimaryGeneratorAction(ReactionFilePath(), 0.0, TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm()));
+  auto* generator =
+      new PrimaryGeneratorAction(ReactionFilePath(), 0.0, TargetChamber::BeamApertureWorldYCm(), ReactionZ0Cm());
+  if (RunConfig::RecoilScan()) {
+    generator->EnableRecoilScan(RunConfig::RecoilScanThetaMax(), RunConfig::RecoilScanDeltaMax());
+    std::printf("Recoil acceptance scan: |theta_x|,|theta_y| <= %.4f rad, |delta| <= %.4f, no gammas\n",
+                RunConfig::RecoilScanThetaMax(), RunConfig::RecoilScanDeltaMax());
+  }
+  runManager->SetUserAction(generator);
   // See SteppingAction's own comment: without this, G4ionIonisation's
   // effective-charge model silently drifts the recoil's tracked charge
   // away from its real, fixed charge state, corrupting every bend

@@ -10,6 +10,7 @@
 #include "G4HCofThisEvent.hh"
 #include "G4SDManager.hh"
 #include "G4SystemOfUnits.hh"
+#include "G4VPhysicalVolume.hh"
 #include "HitNtuple.hh"
 #include "RunConfig.hh"
 
@@ -140,6 +141,10 @@ void EventAction::EndOfEventAction(const G4Event* event) {
     analysisManager->FillNtupleDColumn(id, kTrRecoilPy, t.recoilPMeV.y());
     analysisManager->FillNtupleDColumn(id, kTrRecoilPz, t.recoilPMeV.z());
     analysisManager->FillNtupleDColumn(id, kTrRecoilE, t.recoilEMeV);
+    const auto* endVol = static_cast<const G4VPhysicalVolume*>(t.recoilEndVolume);
+    analysisManager->FillNtupleSColumn(id, kTrRecoilEndVolume,
+                                       endVol ? endVol->GetName() : G4String("OutOfWorld"));
+    analysisManager->FillNtupleFColumn(id, kTrRecoilEndZ, static_cast<float>(t.recoilEndZCm));
     analysisManager->AddNtupleRow(id);
   }
 }

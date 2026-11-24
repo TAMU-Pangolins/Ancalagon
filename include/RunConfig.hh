@@ -25,6 +25,13 @@
 //   LIBRARY_CELLS            text file, one cell per line: "E0_MeV z_cm beta"
 //                            ('#' comments allowed).
 //   LIBRARY_EVENTS_PER_CELL  events simulated per cell (default 1000).
+//
+// Recoil acceptance scan (--track-reaction with RECOIL_SCAN=1), see
+// PrimaryGeneratorAction: the recoil alone (no gammas), with its momentum
+// replaced by p_compound*(1+delta) along direction (theta_x, theta_y),
+// sampled uniformly in |theta_x|,|theta_y| <= RECOIL_SCAN_THETA_MAX (rad,
+// default 0.035) and |delta| <= RECOIL_SCAN_DELTA_MAX (default 0.05). The
+// separator retune (if any) still uses unperturbed reaction events.
 #pragma once
 
 #include <string>
@@ -49,6 +56,9 @@ double GasTemperatureK();  // 0 if unset (legacy: no temperature scaling)
 // Multiplier applied to the NIST STP density for the full-pressure target
 // gas: (P/760) * (T_ref/T, or 1 if GAS_TEMPERATURE_K is unset).
 double TargetGasDensityFractionOfStp();
+bool RecoilScan();
+double RecoilScanThetaMax();
+double RecoilScanDeltaMax();
 long RandomSeed();  // RANDOM_SEED, or -1 if unset
 
 // Filled by PrimaryGeneratorAction for every event, read by EventAction.
@@ -66,6 +76,10 @@ struct Truth {
   std::vector<float> gammaCosThetaLab, gammaPhiLab;    // lab direction
   std::vector<float> gammaCosThetaStar, gammaPhiStar;  // in emitting parent's rest frame
   std::vector<int> levelFrom, levelTo;                 // cascade step, -1 = resonance
+  // Where the recoil (track 1) was last seen: its last step's post-step
+  // volume (nullptr = left the world) and z. Filled by SteppingAction.
+  const void* recoilEndVolume = nullptr;  // G4VPhysicalVolume*
+  double recoilEndZCm = 0.0;
 
   void Clear();
 };
